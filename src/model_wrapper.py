@@ -13,6 +13,7 @@ from transformers import (
     AutoTokenizer, 
     AutoModel, 
 )
+from adapters import AutoAdapterModel, LoRAConfig
 
 LOGGER = logging.getLogger()
 
@@ -38,7 +39,7 @@ class Model_Wrapper(object):
 
     def save_model(self, path, context=False):
         # save bert model, bert config
-        self.encoder.save_pretrained(path)
+        self.encoder.save_adapter(path, "sapbert")
 
         # save bert vocab
         self.tokenizer.save_pretrained(path)
@@ -52,7 +53,22 @@ class Model_Wrapper(object):
     def load_bert(self, path, max_length, use_cuda, lowercase=True, trust_remote_code=False):
         self.tokenizer = AutoTokenizer.from_pretrained(path, 
                 use_fast=True, do_lower_case=lowercase)
-        self.encoder = AutoModel.from_pretrained(path, trust_remote_code=trust_remote_code)
+        print('======== ===== path ==== =======', path)
+        main_model = AutoModel.from_pretrained(path, trust_remote_code=trust_remote_code)
+        print('main Model', main_model)
+        model = AutoAdapterModel.from_pretrained(path)
+        loraConfig = LoRAConfig(
+            r=16,           # Increasing the rank
+            alpha=16,       # Adjusting the scaling factor
+            dropout=0.1,    # Adding dropout for regularization
+        )
+        model.add_adapter("sapbert", config=loraConfig)
+        model.train_adapter(["sapbert"])
+        print('loading test  ====== ')
+        print('adapter model', model)
+        model.delete_head("default")
+        self.encoder = model
+        print('adapter model after delete', model)
         if use_cuda:
             self.encoder = self.encoder.cuda()
 
