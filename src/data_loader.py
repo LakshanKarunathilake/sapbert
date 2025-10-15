@@ -350,6 +350,40 @@ class MetricLearningDataset_pairwise(Dataset):
     def __len__(self):
         return len(self.query_names)
 
+class MetricLearningDataset_pairwise_types(Dataset):
+    def __init__(self, path, tokenizer, tui2idx):
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        self.query_ids = []
+        self.query_names = []
+        self.tui_sets = []
+        for line in lines:
+            line = line.rstrip("\n")
+            parts = line.split("||")
+            if len(parts) < 3:
+                continue
+            cui, name1, name2 = parts[:3]
+            types_str = parts[3] if len(parts) >= 4 else ""
+            tui_set = set([t for t in types_str.split("|") if t])
+
+            self.query_ids.append(cui)
+            self.query_names.append((name1, name2))
+            self.tui_sets.append(tui_set)
+
+        uniq = list(dict.fromkeys(self.query_ids))
+        self.query_id_2_index_id = {k: i for i, k in enumerate(uniq)}
+        self.query_ids = [self.query_id_2_index_id[k] for k in self.query_ids]
+        self.tokenizer = tokenizer
+        self.tui2idx = tui2idx or {}
+
+    def __getitem__(self, idx):
+        name1, name2 = self.query_names[idx]
+        label = int(self.query_ids[idx])
+        return name1, name2, label, self.tui_sets[idx]
+
+    def __len__(self):
+        return len(self.query_names)
 
 
 class MetricLearningDataset(Dataset):

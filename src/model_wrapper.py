@@ -13,7 +13,9 @@ from transformers import (
     AutoTokenizer, 
     AutoModel, 
 )
-from adapters import AutoAdapterModel, LoRAConfig
+
+from adapters import LoRAConfig
+import adapters
 
 LOGGER = logging.getLogger()
 
@@ -39,36 +41,72 @@ class Model_Wrapper(object):
 
     def save_model(self, path, context=False):
         # save bert model, bert config
+        self.encoder.save_pretrained(path)
+
+        # save bert vocab
+        self.tokenizer.save_pretrained(path)
+    
+    def save_adapter_model(self, path, context=False):
+        # save bert model, bert config
         self.encoder.save_adapter(path, "sapbert")
 
         # save bert vocab
         self.tokenizer.save_pretrained(path)
-        
 
     def load_model(self, path, max_length=25, use_cuda=True, lowercase=True, trust_remote_code=False):
         self.load_bert(path, max_length, use_cuda, trust_remote_code=trust_remote_code)
         
         return self
+    
+    def load_adapter_model(self, model_path, adapter_path, max_length=25, use_cuda=True, lowercase=True):
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path,
+            use_fast=True,
+            do_lower_case=lowercase,
+            model_max_length=max_length
+        )
+        self.encoder = AutoModel.from_pretrained(model_path)
+        adapters.init(self.encoder)
+        # load adapter
+        self.encoder.load_adapter(adapter_path)
+        # self.encoder.active_head = None
+        if use_cuda:
+            self.encoder = self.encoder.cuda()
+
+        return self
 
     def load_bert(self, path, max_length, use_cuda, lowercase=True, trust_remote_code=False):
-        self.tokenizer = AutoTokenizer.from_pretrained(path, 
-                use_fast=True, do_lower_case=lowercase)
-        print('======== ===== path ==== =======', path)
-        main_model = AutoModel.from_pretrained(path, trust_remote_code=trust_remote_code)
-        print('main Model', main_model)
-        model = AutoAdapterModel.from_pretrained(path)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            path,
+            use_fast=True,
+            do_lower_case=lowercase,
+            model_max_length=max_length
+        )
+        self.encoder = AutoModel.from_pretrained(path, trust_remote_code=trust_remote_code)
+        if use_cuda:
+            self.encoder = self.encoder.cuda()
+
+        return self.encoder, self.tokenizer
+    
+    def load_bert_adapter(self, path, max_length, use_cuda, lowercase=True, adapter_config="lora"):
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            path,
+            use_fast=True,
+            do_lower_case=lowercase,
+            model_max_length=max_length
+        )
+        self.encoder = AutoModel.from_pretrained(path)
+        adapters.init(self.encoder)
+        # Creating adapter with configureations
         loraConfig = LoRAConfig(
             r=16,           # Increasing the rank
             alpha=16,       # Adjusting the scaling factor
             dropout=0.1,    # Adding dropout for regularization
         )
-        model.add_adapter("sapbert", config=loraConfig)
-        model.train_adapter(["sapbert"])
-        print('loading test  ====== ')
-        print('adapter model', model)
-        model.delete_head("default")
-        self.encoder = model
-        print('adapter model after delete', model)
+        # actually add the adapter
+        self.encoder.add_adapter("sapbert", config=loraConfig)
+        self.encoder.train_adapter(["sapbert"])
+        self.encoder.active_head = None
         if use_cuda:
             self.encoder = self.encoder.cuda()
 
